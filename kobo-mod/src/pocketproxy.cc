@@ -5,8 +5,9 @@
 
 static struct nh_info PocketProxy = {
     .name           = "PocketProxy",
-    .desc           = "",
-    .uninstall_flag = "/mnt/onboard/pp_uninstall",
+    .desc           = "Intercept Pocket API HTTP calls and redirect them to configured URLs instead",
+    .uninstall_flag = nullptr,
+    .uninstall_xflag = "/mnt/onboard/.adds/pocket_proxy/DELETE_ME_TO_UNINSTALL",
 };
 
 static struct nh_hook PocketProxyHook[] = {

@@ -4,13 +4,16 @@ KOBO_MAKE=docker run --volume="${KOBO_MOD_DIR}:${KOBO_MOD_DIR}" --workdir="${KOB
 
 
 all:
+	mkdir -p bin/proxy-server
+	mkdir -p bin/kobo-mod
 	cd proxy-server && make build
 	sudo ${KOBO_MAKE} \
 		&& sudo ${KOBO_MAKE} koboroot \
-		&& mv ${KOBO_MOD_DIR}/libpocketproxy.so bin \
-		&& mv ${KOBO_MOD_DIR}/KoboRoot.tgz bin
+		&& mv -f ${KOBO_MOD_DIR}/libpocketproxy.so bin/kobo-mod/ \
+		&& mv -f ${KOBO_MOD_DIR}/KoboRoot.tgz bin/kobo-mod/		
 
 clean:
 	cd proxy-server && make clean
-	rm -f ../bin/libpocketproxy
-	rm -f ../bin/KoboRoot.tgz
+	rm -f ../bin/kobo-mod/libpocketproxy
+	rm -f ../bin/kobo-mod/KoboRoot.tgz
+	rm -f ${KOBO_MOD_DIR}/src/pocketproxy.o
