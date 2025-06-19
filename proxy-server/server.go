@@ -4,12 +4,14 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"log"
 	"net/http"
 )
 
 var port = flag.Int("port", 8080, "HTTP port to listen on")
 
 func getArticles(w http.ResponseWriter, r *http.Request) {
+	log.Print("Got request at /get")
 	if r.Method != http.MethodPost {
 		return
 	}
@@ -18,6 +20,7 @@ func getArticles(w http.ResponseWriter, r *http.Request) {
 }
 
 func modifyArticles(w http.ResponseWriter, r *http.Request) {
+	log.Print("Got request at /send")
 	w.Write([]byte("Modify"))
 }
 
@@ -56,6 +59,7 @@ type articleResponse struct {
 }
 
 func articleText(w http.ResponseWriter, r *http.Request) {
+	log.Print("Got request at /v3beta/text")
 	var req articleRequest
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -70,12 +74,17 @@ func articleText(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func catchAll(w http.ResponseWriter, r *http.Request) {
+	log.Printf("Got catchall request at %s", r.URL)
+}
+
 func main() {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/v3/get", getArticles)
 	mux.HandleFunc("/v3/send", modifyArticles)
 	mux.HandleFunc("/v3beta/text", articleText)
+	mux.HandleFunc("/", catchAll)
 
 	fmt.Printf("Listening on http://localhost:%d\n", *port)
 

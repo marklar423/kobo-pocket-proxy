@@ -1,3 +1,6 @@
 [submodule "NickelHook"]
 	path = kobo-mod/NickelHook
 	url = https://github.com/pgaskin/NickelHook.git
+[submodule "kobo-mod/inih"]
+	path = kobo-mod/inih
+	url = https://github.com/benhoyt/inih.git

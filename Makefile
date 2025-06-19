@@ -7,6 +7,7 @@ all:
 	mkdir -p bin/proxy-server
 	mkdir -p bin/kobo-mod
 	cd proxy-server && make build
+	$(info **** Asking for root to build Kobo in a Docker container ****)
 	sudo ${KOBO_MAKE} \
 		&& sudo ${KOBO_MAKE} koboroot \
 		&& mv -f ${KOBO_MOD_DIR}/libpocketproxy.so bin/kobo-mod/ \
