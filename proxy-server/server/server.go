@@ -1,4 +1,4 @@
-package main
+package server
 
 import (
 	"flag"
@@ -104,7 +104,7 @@ func catchAll(w http.ResponseWriter, r *http.Request) {
 	http.NotFound(w, r)
 }
 
-func main() {
+func StartServing() {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/v3/get", getArticles)
