@@ -21,6 +21,7 @@ type SendError struct {
 }
 
 type SendResponse struct {
+	// 0 = failure, 1 = success
 	Status        int          `json:"status"`
 	ActionErrors  []*SendError `json:"action_errors"`
 	ActionResults []bool       `json:"action_results"`

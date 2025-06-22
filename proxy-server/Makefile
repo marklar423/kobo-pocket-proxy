@@ -1,7 +1,7 @@
 SERVER_EXECUTABLE=pocket-proxy-server
 
 build:
-	go build -o ../bin/proxy-server/${SERVER_EXECUTABLE} server.go
+	go build -o ../bin/proxy-server/${SERVER_EXECUTABLE} main.go
 
 run: build
 	../bin/proxy-server/${SERVER_EXECUTABLE}

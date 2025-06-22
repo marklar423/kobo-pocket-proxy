@@ -15,7 +15,7 @@ type ArticleTextResponse struct {
 	TimeFirstParsed     string            `json:"time_first_parsed"`
 	HasOldDupes         string            `json:"has_old_dupes"`
 	InnerdomainRedirect string            `json:"innerdomain_redirect"`
-	TimeToRead          int               `json:"time_to_read"`
+	TimeToRead          *int              `json:"time_to_read"`
 	HasImage            string            `json:"has_image"`
 	HasVideo            string            `json:"has_video"`
 	ResolvedID          string            `json:"resolved_id"`
@@ -23,18 +23,18 @@ type ArticleTextResponse struct {
 	Host                string            `json:"host"`
 	Title               string            `json:"title"`
 	DatePublished       string            `json:"datePublished"`
-	TimePublished       int               `json:"timePublished"`
+	TimePublished       *int              `json:"timePublished"`
 	ResponseCode        string            `json:"responseCode"`
 	Excerpt             string            `json:"excerpt"`
 	Authors             map[string]Author `json:"authors"`
 	Images              map[string]Image  `json:"images"`
 	Videos              string            `json:"videos"`
-	WordCount           int               `json:"wordCount"`
-	IsArticle           int               `json:"isArticle"`
-	IsVideo             int               `json:"isVideo"`
-	IsIndex             int               `json:"isIndex"`
-	UsedFallback        int               `json:"usedFallback"`
-	RequiresLogin       int               `json:"requiresLogin"`
+	WordCount           *int              `json:"wordCount"`
+	IsArticle           *int              `json:"isArticle"`
+	IsVideo             *int              `json:"isVideo"`
+	IsIndex             *int              `json:"isIndex"`
+	UsedFallback        *int              `json:"usedFallback"`
+	RequiresLogin       *int              `json:"requiresLogin"`
 	Lang                string            `json:"lang"`
 	TopImageURL         string            `json:"topImageUrl"`
 	DomainMetadata      *DomainMetadata   `json:"domainMetadata"`
