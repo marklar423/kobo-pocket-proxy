@@ -1,16 +1,37 @@
 package server
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"proxyserver/backend"
 	"strings"
 )
 
+type backendInit func() (backend.Backend, error)
+
 var port = flag.Int("port", 8080, "HTTP port to listen on")
 var verbose = flag.Bool("verbost", true, "If true, dumps all request fields to stdout")
+var backendName = flag.String("backend", "readeck", "The name of the backend to forward API calls to")
+var backendEndpoint = flag.String("backend_endpoint", "", "The backend API endpoint")
+var backendBearerToken = flag.String("backend_bearer_token", "", "The backend API bearer token used for authentication")
+
+func initReadeck() (backend.Backend, error) {
+	if *backendEndpoint == "" {
+		return nil, errors.New("Need to specify --backend_endpoint for when using a Readeck backend")
+	}
+	if *backendBearerToken == "" {
+		return nil, errors.New("Need to specify --backend_endpoint for when using a Readeck backend")
+	}
+	return backend.NewReadeckConn(*backendEndpoint, *backendBearerToken), nil
+}
+
+var allBackends = map[string]backendInit{
+	"readeck": initReadeck,
+}
 
 func maybeVLog(r *http.Request, body string) {
 	if *verbose {

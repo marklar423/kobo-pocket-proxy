@@ -1,7 +1,9 @@
-package server
+package backend
 
-import "proxyserver/pocketapi"
-import "time"
+import (
+	"proxyserver/pocketapi"
+	"time"
+)
 
 type Backend interface {
 	Get(req pocketapi.GetRequest) (pocketapi.GetResponse, error)
