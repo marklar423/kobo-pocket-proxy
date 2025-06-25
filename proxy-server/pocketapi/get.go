@@ -20,7 +20,7 @@ type GetRequest struct {
 	// Items to skip, used for pagination.
 	Offset *int `json:"offset"`
 	// Unix timestamp.
-	Since *int `json:"since"`
+	Since *int64 `json:"since"`
 }
 
 type GetResponseItem struct {
@@ -35,7 +35,7 @@ type GetResponseItem struct {
 	SortID        int    `json:"sort_id"`
 	Tags          struct {
 	} `json:"tags"`
-	TopImageURL   string `json:"top_image_url"`
+	TopImageURL   string `json:"top_image_url,omitempty"`
 	ResolvedID    string `json:"resolved_id"`
 	GivenURL      string `json:"given_url"`
 	GivenTitle    string `json:"given_title"`
