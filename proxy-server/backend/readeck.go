@@ -35,7 +35,7 @@ func (conn *ReadeckConn) createRequest(method, action string) (*http.Request, er
 }
 
 func buildGetQuerystring(req pocketapi.GetRequest) string {
-	var query url.Values
+	query := url.Values{}
 
 	if req.Count != nil {
 		query.Set("limit", strconv.Itoa(max(0, *req.Count)))
@@ -227,6 +227,7 @@ func translateGetResponse(deckRes *http.Response) (pocketapi.GetResponse, error)
 			pocketRes.Total = t
 		}
 	}
+	pocketRes.List = map[string]pocketapi.GetResponseItem{}
 	for _, item := range deckItems {
 		pocketRes.List[item.ID] = item.toPocketItem()
 	}
@@ -244,6 +245,9 @@ func (conn *ReadeckConn) Get(req pocketapi.GetRequest) (pocketapi.GetResponse, e
 	deckRes, err := http.DefaultClient.Do(deckReq)
 	if err != nil {
 		return pocketapi.GetResponse{}, err
+	}
+	if deckRes.StatusCode != http.StatusOK {
+		return pocketapi.GetResponse{}, fmt.Errorf("error calling Readeck API: [%d] %s", deckRes.StatusCode, deckRes.Status)
 	}
 
 	return translateGetResponse(deckRes)
