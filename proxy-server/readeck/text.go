@@ -1,12 +1,16 @@
 package readeck
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"proxyserver/pocketapi"
-	"strings"
+	"strconv"
 	"time"
+
+	"golang.org/x/net/html"
 )
 
 func copyFromGetItem(item getResponseItem, article *pocketapi.ArticleTextResponse) {
@@ -37,34 +41,75 @@ func copyFromGetItem(item getResponseItem, article *pocketapi.ArticleTextRespons
 	article.Lang = item.Lang
 }
 
-func (conn *ReadeckConn) getArticleHTML(itemID string) (string, error) {
+func (conn *ReadeckConn) getArticleHTML(itemID string, received func(io.ReadCloser) error) error {
 	deckReq, err := conn.createRequest(http.MethodGet, fmt.Sprintf("bookmarks/%s/article", itemID))
 	if err != nil {
-		return "", err
+		return err
 	}
 
 	deckReq.Header.Set("Accept", "text/html")
 	deckRes, err := http.DefaultClient.Do(deckReq)
 	if err != nil {
-		return "", err
+		return err
 	}
 	if deckRes.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("error calling Readeck API: [%d] %s", deckRes.StatusCode, deckRes.Status)
+		return fmt.Errorf("error calling Readeck API: [%d] %s", deckRes.StatusCode, deckRes.Status)
 	}
 
-	buf := new(strings.Builder)
-	if _, err := io.Copy(buf, deckReq.Body); err != nil {
-		return "", err
-	}
-
-	return buf.String(), nil
+	return received(deckReq.Body)
 }
 
-func parseArticleText(articleText string, article *pocketapi.ArticleTextResponse) string {
+func parseArticleText(articleText io.ReadCloser, article *pocketapi.ArticleTextResponse) error {
+	doc, err := html.Parse(articleText)
+	if err != nil {
+		return err
+	}
+
 	// We need to separate the <img> tags and replace them with HTML comments
 	// of the form <!--IMG_n-->, since that what Pocket clients expect.
+	article.Images = make(map[string]pocketapi.Image)
 
-	// TODO: contentlength
+	var body *html.Node
+	for n := range doc.Descendants() {
+		if n.Type == html.ElementNode {
+			if n.Data == "body" {
+				body = n
+			}
+
+			if n.Data == "img" {
+				pImg := pocketapi.Image{}
+				for _, a := range n.Attr {
+					if a.Key == "src" {
+						pImg.Src = a.Val
+					}
+				}
+				if pImg.Src == "" {
+					// No image URL available, skip
+					continue
+				}
+				// Save the URL
+				pImg.ImageID = strconv.Itoa(len(article.Images) + 1)
+				article.Images[pImg.ImageID] = pImg
+
+				// Replace the tag with a comment
+				n.Type = html.CommentNode
+				n.Data = fmt.Sprintf("IMG_%s", pImg.ImageID)
+				n.Attr = nil
+			}
+		}
+	}
+
+	if body == nil {
+		return errors.New("unable to parse HTML")
+	}
+
+	var buf bytes.Buffer
+	w := io.Writer(&buf)
+	html.Render(w, body.FirstChild)
+	article.Article = buf.String()
+	article.ContentLength = strconv.Itoa(len(article.Article))
+
+	return nil
 }
 
 func (conn *ReadeckConn) ArticleText(url string) (pocketapi.ArticleTextResponse, error) {
@@ -81,12 +126,12 @@ func (conn *ReadeckConn) ArticleText(url string) (pocketapi.ArticleTextResponse,
 	copyFromGetItem(item, &article)
 
 	article.Encoding = "utf-8"
-	articleText, err := conn.getArticleHTML(id)
+	err = conn.getArticleHTML(id, func(articleText io.ReadCloser) error {
+		return parseArticleText(articleText, &article)
+	})
 	if err != nil {
 		return pocketapi.ArticleTextResponse{}, fmt.Errorf("error getting article HTML: %v", err)
 	}
-
-	parseArticleText(articleText, &article)
 
 	return article, nil
 }
