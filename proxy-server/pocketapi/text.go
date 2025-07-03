@@ -2,8 +2,8 @@ package pocketapi
 
 // Note: the article text request is form-encoded, not JSON.
 type ArticleTextResponse struct {
-	GivenURL            string            `json:"given_url"`
 	ItemID              string            `json:"item_id"`
+	GivenURL            string            `json:"given_url"`
 	NormalURL           string            `json:"normal_url"`
 	ResolvedNormalURL   string            `json:"resolved_normal_url"`
 	DateResolved        string            `json:"date_resolved"`

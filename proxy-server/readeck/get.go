@@ -1,8 +1,7 @@
-package backend
+package readeck
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -11,28 +10,6 @@ import (
 	"strings"
 	"time"
 )
-
-type ReadeckConn struct {
-	endpoint    string
-	bearerToken string
-}
-
-func NewReadeckConn(endpoint string, bearerToken string) *ReadeckConn {
-	return &ReadeckConn{
-		endpoint:    endpoint,
-		bearerToken: bearerToken,
-	}
-}
-
-func (conn *ReadeckConn) createRequest(method, action string) (*http.Request, error) {
-	apiUrl := fmt.Sprintf("%s/api/%s", conn.endpoint, action)
-	deckReq, err := http.NewRequest(method, apiUrl, nil)
-	if err != nil {
-		return nil, err
-	}
-	deckReq.Header.Set("Authorization", fmt.Sprintf("Bearer %s", conn.bearerToken))
-	return deckReq, nil
-}
 
 func buildGetQuerystring(req pocketapi.GetRequest) string {
 	query := url.Values{}
@@ -156,13 +133,16 @@ func (m getResponseItem) toPocketItem() pocketapi.GetResponseItem {
 		domainMeta = &pocketapi.DomainMetadata{Name: m.SiteName}
 	}
 
-	authors := make(map[string]pocketapi.Author)
-	for _, a := range m.Authors {
-		id := a // TODO: hash
-		authors[id] = pocketapi.Author{
-			AuthorID: id,
-			Name:     a,
-			ItemID:   m.ID,
+	var authors map[string]pocketapi.Author
+	if len(m.Authors) > 0 {
+		authors = make(map[string]pocketapi.Author)
+		for _, a := range m.Authors {
+			id := digest(a)
+			authors[id] = pocketapi.Author{
+				AuthorID: id,
+				Name:     a,
+				ItemID:   m.ID,
+			}
 		}
 	}
 
@@ -172,7 +152,7 @@ func (m getResponseItem) toPocketItem() pocketapi.GetResponseItem {
 	if m.Resources.Image != nil {
 		hasImage = "1"
 		topImageUrl = m.Resources.Image.Src
-		id := m.Resources.Image.Src // TODO: hash
+		id := digest(m.Resources.Image.Src)
 		image = &pocketapi.Image{
 			ItemID:  m.ID,
 			ImageID: id,
@@ -181,16 +161,22 @@ func (m getResponseItem) toPocketItem() pocketapi.GetResponseItem {
 			Height:  strconv.Itoa(m.Resources.Image.Height),
 		}
 	}
+	//1 if the item is archived - 2 if the item should be deleted
+	status := "0"
+	if m.IsArchived {
+		status = "1"
+	}
+	if m.IsDeleted {
+		status = "2"
+	}
 
 	return pocketapi.GetResponseItem{
 		ItemID:                 m.ID,
 		Favorite:               oneIfTrue(m.IsMarked),
-		Status:                 "1",
+		Status:                 status,
 		TimeAdded:              strconv.FormatInt(m.Created.Unix(), 10),
 		TimeUpdated:            strconv.FormatInt(m.Updated.Unix(), 10),
-		TimeRead:               strconv.Itoa(m.ReadingTime),
 		TimeFavorited:          timeFavorited,
-		SortID:                 0,
 		ResolvedID:             m.ID,
 		GivenURL:               m.URL,
 		GivenTitle:             m.Title,
@@ -213,7 +199,7 @@ func (m getResponseItem) toPocketItem() pocketapi.GetResponseItem {
 	}
 }
 
-func translateGetResponse(deckRes *http.Response) (pocketapi.GetResponse, error) {
+func (conn *ReadeckConn) translateGetResponse(deckRes *http.Response) (pocketapi.GetResponse, error) {
 	var deckItems []getResponseItem
 	if err := json.NewDecoder(deckRes.Body).Decode(&deckItems); err != nil {
 		return pocketapi.GetResponse{}, err
@@ -230,6 +216,9 @@ func translateGetResponse(deckRes *http.Response) (pocketapi.GetResponse, error)
 	pocketRes.List = map[string]pocketapi.GetResponseItem{}
 	for _, item := range deckItems {
 		pocketRes.List[item.ID] = item.toPocketItem()
+
+		// Cache the URL and its ID.
+		conn.urlIDCache[item.URL] = item.ID
 	}
 
 	return pocketRes, nil
@@ -250,33 +239,26 @@ func (conn *ReadeckConn) Get(req pocketapi.GetRequest) (pocketapi.GetResponse, e
 		return pocketapi.GetResponse{}, fmt.Errorf("error calling Readeck API: [%d] %s", deckRes.StatusCode, deckRes.Status)
 	}
 
-	return translateGetResponse(deckRes)
+	return conn.translateGetResponse(deckRes)
 }
 
-func (conn *ReadeckConn) ArticleText(url string) (pocketapi.ArticleTextResponse, error) {
-	return pocketapi.ArticleTextResponse{}, errors.New("not implemented")
-}
+func (conn *ReadeckConn) getOneItem(itemID string) (getResponseItem, error) {
+	deckReq, err := conn.createRequest(http.MethodGet, fmt.Sprintf("bookmarks/%s", itemID))
+	if err != nil {
+		return getResponseItem{}, err
+	}
 
-func (conn *ReadeckConn) Add(url string, title string, time time.Time) error {
-	return errors.New("not implemented")
-}
+	deckRes, err := http.DefaultClient.Do(deckReq)
+	if err != nil {
+		return getResponseItem{}, err
+	}
+	if deckRes.StatusCode != http.StatusOK {
+		return getResponseItem{}, fmt.Errorf("error calling Readeck API: [%d] %s", deckRes.StatusCode, deckRes.Status)
+	}
 
-func (conn *ReadeckConn) Archive(itemID string, time time.Time) error {
-	return errors.New("not implemented")
-}
-
-func (conn *ReadeckConn) Unarchive(itemID string, time time.Time) error {
-	return errors.New("not implemented")
-}
-
-func (conn *ReadeckConn) Delete(itemID string, time time.Time) error {
-	return errors.New("not implemented")
-}
-
-func (conn *ReadeckConn) Favorite(itemID string, time time.Time) error {
-	return errors.New("not implemented")
-}
-
-func (conn *ReadeckConn) Unfavorite(itemID string, time time.Time) error {
-	return errors.New("not implemented")
+	var item getResponseItem
+	if err := json.NewDecoder(deckRes.Body).Decode(&item); err != nil {
+		return getResponseItem{}, err
+	}
+	return item, nil
 }

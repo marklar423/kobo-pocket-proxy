@@ -1,0 +1,48 @@
+package readeck
+
+import (
+	"crypto/sha1"
+	"encoding/hex"
+	"fmt"
+	"net/http"
+)
+
+type ReadeckConn struct {
+	endpoint    string
+	bearerToken string
+
+	// A mapping article URLs to Readeck IDs.
+	// Pocket just needs a URL to get article text, but Readeck requires an item ID,
+	// so the solution here is to cache URLs and IDs in memory when Get() is called.
+	//
+	// It's not ideal, but the Kobo will usually list articles before downloading, and
+	// so long as the proxy server isn't restarted in between it'll still have the ID.
+	//
+	// If this is insufficient, it should be easy to add code to automatically refresh
+	// the cache on startup.
+	urlIDCache map[string]string
+}
+
+func NewReadeckConn(endpoint string, bearerToken string) *ReadeckConn {
+	return &ReadeckConn{
+		endpoint:    endpoint,
+		bearerToken: bearerToken,
+		urlIDCache:  make(map[string]string),
+	}
+}
+
+func (conn *ReadeckConn) createRequest(method, action string) (*http.Request, error) {
+	apiUrl := fmt.Sprintf("%s/api/%s", conn.endpoint, action)
+	deckReq, err := http.NewRequest(method, apiUrl, nil)
+	if err != nil {
+		return nil, err
+	}
+	deckReq.Header.Set("Authorization", fmt.Sprintf("Bearer %s", conn.bearerToken))
+	return deckReq, nil
+}
+
+func digest(val string) string {
+	h := sha1.New()
+	h.Write([]byte(val))
+	return hex.EncodeToString(h.Sum(nil))
+}

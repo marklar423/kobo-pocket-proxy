@@ -30,9 +30,7 @@ type GetResponseItem struct {
 	Status        string `json:"status"`
 	TimeAdded     string `json:"time_added"`
 	TimeUpdated   string `json:"time_updated"`
-	TimeRead      string `json:"time_read"`
 	TimeFavorited string `json:"time_favorited"`
-	SortID        int    `json:"sort_id"`
 	Tags          struct {
 	} `json:"tags"`
 	TopImageURL   string `json:"top_image_url,omitempty"`
@@ -62,7 +60,6 @@ type GetResponse struct {
 	Cachetype  string `json:"cachetype"`
 	Status     int    `json:"status"`
 	Error      any    `json:"error"`
-	Complete   int    `json:"complete"`
 	// Unix timestamp.
 	Since int                        `json:"since"`
 	List  map[string]GetResponseItem `json:"list"`
