@@ -85,6 +85,12 @@ func parseArticleText(articleText io.ReadCloser, article *pocketapi.ArticleTextR
 					if a.Key == "src" {
 						pImg.Src = a.Val
 					}
+					if a.Key == "height" {
+						pImg.Height = a.Val
+					}
+					if a.Key == "width" {
+						pImg.Width = a.Val
+					}
 				}
 				if pImg.Src == "" {
 					// No image URL available, skip
@@ -92,6 +98,7 @@ func parseArticleText(articleText io.ReadCloser, article *pocketapi.ArticleTextR
 				}
 				// Save the URL
 				pImg.ImageID = strconv.Itoa(len(article.Images) + 1)
+				pImg.ItemID = article.ItemID
 				article.Images[pImg.ImageID] = pImg
 
 				// Replace the tag with a comment
