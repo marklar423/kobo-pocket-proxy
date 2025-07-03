@@ -18,9 +18,35 @@ func TestParseArticleText(t *testing.T) {
 	}{
 		{
 			name: "Basic",
+			text: "<div><img src=\"http://test.com/img.png\" /></div>",
+			want: pocketapi.ArticleTextResponse{
+				Article: "<div><div><!--IMG_1--></div></div>",
+				Images: map[string]pocketapi.Image{
+					"1": {
+						ImageID: "1",
+						Src:     "http://test.com/img.png",
+					},
+				},
+			},
+		},
+		{
+			name: "Malformed",
 			text: "<div><img src=\"http://test.com/img.png\" />",
 			want: pocketapi.ArticleTextResponse{
-				Article: "<div><!--IMG_1--></div>",
+				Article: "<div><div><!--IMG_1--></div></div>",
+				Images: map[string]pocketapi.Image{
+					"1": {
+						ImageID: "1",
+						Src:     "http://test.com/img.png",
+					},
+				},
+			},
+		},
+		{
+			name: "Multiple Elements",
+			text: "<div>test</div><div><img src=\"http://test.com/img.png\" /></div>",
+			want: pocketapi.ArticleTextResponse{
+				Article: "<div><div>test</div><div><!--IMG_1--></div></div>",
 				Images: map[string]pocketapi.Image{
 					"1": {
 						ImageID: "1",

@@ -69,11 +69,14 @@ func parseArticleText(articleText io.ReadCloser, article *pocketapi.ArticleTextR
 	// of the form <!--IMG_n-->, since that what Pocket clients expect.
 	article.Images = make(map[string]pocketapi.Image)
 
-	var body *html.Node
+	var root *html.Node
 	for n := range doc.Descendants() {
 		if n.Type == html.ElementNode {
 			if n.Data == "body" {
-				body = n
+				root = n
+				// Replace the body with a root <div>, since the existing Pocket API
+				// doesn't include a <body> tag.
+				root.Data = "div"
 			}
 
 			if n.Data == "img" {
@@ -99,13 +102,13 @@ func parseArticleText(articleText io.ReadCloser, article *pocketapi.ArticleTextR
 		}
 	}
 
-	if body == nil {
+	if root == nil {
 		return errors.New("unable to parse HTML")
 	}
 
 	var buf bytes.Buffer
 	w := io.Writer(&buf)
-	html.Render(w, body.FirstChild)
+	html.Render(w, root)
 	article.Article = buf.String()
 	article.ContentLength = strconv.Itoa(len(article.Article))
 
