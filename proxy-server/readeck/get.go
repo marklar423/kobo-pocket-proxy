@@ -225,7 +225,7 @@ func (conn *ReadeckConn) translateGetResponse(deckRes *http.Response) (pocketapi
 }
 
 func (conn *ReadeckConn) Get(req pocketapi.GetRequest) (pocketapi.GetResponse, error) {
-	deckReq, err := conn.createRequest(http.MethodGet, "bookmarks")
+	deckReq, err := conn.createRequest(http.MethodGet, "bookmarks", nil)
 	if err != nil {
 		return pocketapi.GetResponse{}, err
 	}
@@ -243,7 +243,7 @@ func (conn *ReadeckConn) Get(req pocketapi.GetRequest) (pocketapi.GetResponse, e
 }
 
 func (conn *ReadeckConn) getOneItem(itemID string) (getResponseItem, error) {
-	deckReq, err := conn.createRequest(http.MethodGet, fmt.Sprintf("bookmarks/%s", itemID))
+	deckReq, err := conn.createRequest(http.MethodGet, fmt.Sprintf("bookmarks/%s", itemID), nil)
 	if err != nil {
 		return getResponseItem{}, err
 	}

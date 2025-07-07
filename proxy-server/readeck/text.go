@@ -42,7 +42,7 @@ func copyFromGetItem(item getResponseItem, article *pocketapi.ArticleTextRespons
 }
 
 func (conn *ReadeckConn) getArticleHTML(itemID string, received func(io.ReadCloser) error) error {
-	deckReq, err := conn.createRequest(http.MethodGet, fmt.Sprintf("bookmarks/%s/article", itemID))
+	deckReq, err := conn.createRequest(http.MethodGet, fmt.Sprintf("bookmarks/%s/article", itemID), nil)
 	if err != nil {
 		return err
 	}

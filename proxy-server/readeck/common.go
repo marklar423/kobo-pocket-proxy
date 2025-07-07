@@ -4,6 +4,7 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"net/http"
 )
 
@@ -31,9 +32,9 @@ func NewReadeckConn(endpoint string, bearerToken string) *ReadeckConn {
 	}
 }
 
-func (conn *ReadeckConn) createRequest(method, action string) (*http.Request, error) {
+func (conn *ReadeckConn) createRequest(method, action string, body io.Reader) (*http.Request, error) {
 	apiUrl := fmt.Sprintf("%s/api/%s", conn.endpoint, action)
-	deckReq, err := http.NewRequest(method, apiUrl, nil)
+	deckReq, err := http.NewRequest(method, apiUrl, body)
 	if err != nil {
 		return nil, err
 	}
