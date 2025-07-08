@@ -107,3 +107,40 @@ func TestReadeck_SendUpdate(t *testing.T) {
 		})
 	}
 }
+
+func TestReadeck_Add(t *testing.T) {
+	wantBody := insertRequest{Url: "http://example.com/path-to-file?key=value"}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+
+		if r.Method != http.MethodPost {
+			t.Errorf("Unexpected HTTP method, want POST got %s", r.Method)
+		}
+
+		wantToken := "Bearer token123"
+		if r.Header.Get("Authorization") != wantToken {
+			t.Errorf("Unexepcted authorization header: want %s got %s", wantToken, r.Header.Get("Authorization"))
+		}
+
+		wantUrl := "/api/bookmarks"
+		if r.URL.Path != wantUrl {
+			t.Errorf("Unexpected URL path, got %s want %s", r.URL.Path, wantUrl)
+		}
+
+		var gotBody insertRequest
+		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
+			t.Errorf("Unexpected error parsing body: %v", err)
+		}
+
+		if diff := cmp.Diff(wantBody, gotBody); diff != "" {
+			t.Errorf("Body JSON mismatch (-want +got):\n%s", diff)
+		}
+	}))
+	defer server.Close()
+
+	readeck := NewReadeckConn(server.URL, "token123")
+	if err := readeck.Add("http://example.com/path-to-file?key=value", "", time.Time{}); err != nil {
+		t.Errorf("Unexpected error from Add(): want nil got %v", err)
+	}
+
+}

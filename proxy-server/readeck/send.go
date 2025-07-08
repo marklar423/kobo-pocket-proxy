@@ -3,7 +3,6 @@ package readeck
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -40,8 +39,37 @@ func sendUpdate(conn *ReadeckConn, itemID string, params updateRequest) error {
 	return nil
 }
 
+type insertRequest struct {
+	Url   string `json:"url"`
+	Title string `json:"title,omitempty"`
+}
+
 func (conn *ReadeckConn) Add(url string, title string, time time.Time) error {
-	return errors.New("not implemented")
+	body := insertRequest{Url: url, Title: title}
+	var buffer bytes.Buffer
+	if err := json.NewEncoder(&buffer).Encode(body); err != nil {
+		return err
+	}
+
+	deckReq, err := conn.createRequest(http.MethodPost, "bookmarks", &buffer)
+	if err != nil {
+		return err
+	}
+	deckReq.Header.Set("Content-Type", "application/json")
+
+	deckRes, err := http.DefaultClient.Do(deckReq)
+	if err != nil {
+		return err
+	}
+	if deckRes.StatusCode != http.StatusOK {
+		return fmt.Errorf("error calling Readeck API: [%d] %s", deckRes.StatusCode, deckRes.Status)
+	}
+
+	// Cache the returned ID
+	itemID := deckRes.Header.Get("Bookmark-Id")
+	conn.urlIDCache[url] = itemID
+
+	return nil
 }
 
 func (conn *ReadeckConn) Archive(itemID string, time time.Time) error {
