@@ -3,7 +3,6 @@ package server
 import (
 	"encoding/json"
 	"errors"
-	"flag"
 	"fmt"
 	"log"
 	"net/http"
@@ -13,22 +12,24 @@ import (
 	"time"
 )
 
-var port = flag.Int("port", 8080, "HTTP port to listen on")
-var verbose = flag.Bool("verbost", true, "If true, dumps all request fields to stdout")
-var backendName = flag.String("backend", "readeck", "The name of the backend to forward API calls to")
-var backendEndpoint = flag.String("backend_endpoint", "", "The backend API endpoint")
-var backendBearerToken = flag.String("backend_bearer_token", "", "The backend API bearer token used for authentication")
+type ServerOptions interface {
+	Port() int
+	Verbose() bool
+	BackendName() string
+	BackendEndpoint() string
+	BackendBearerToken() string
+}
 
-type backendInit func() (Backend, error)
+type backendInit func(ServerOptions) (Backend, error)
 
-func initReadeck() (Backend, error) {
-	if *backendEndpoint == "" {
-		return nil, errors.New("need to specify --backend_endpoint for when using a Readeck backend")
+func initReadeck(options ServerOptions) (Backend, error) {
+	if options.BackendEndpoint() == "" {
+		return nil, errors.New("need to specify --backend_endpoint when using a Readeck backend")
 	}
-	if *backendBearerToken == "" {
-		return nil, errors.New("need to specify --backend_bearer_token for when using a Readeck backend")
+	if options.BackendBearerToken() == "" {
+		return nil, errors.New("need to specify --backend_bearer_token when using a Readeck backend")
 	}
-	return readeck.NewReadeckConn(*backendEndpoint, *backendBearerToken), nil
+	return readeck.NewReadeckConn(options.BackendEndpoint(), options.BackendBearerToken()), nil
 }
 
 var allBackends = map[string]backendInit{
@@ -45,26 +46,28 @@ func allBackendNames() string {
 
 type server struct {
 	backend Backend
+	options ServerOptions
 }
 
-func NewServer(backendName string) (*server, error) {
-	backendInit, exists := allBackends[backendName]
+func NewServer(options ServerOptions) (*server, error) {
+	backendInit, exists := allBackends[options.BackendName()]
 	if !exists {
-		return nil, fmt.Errorf("unknown backend \"%s\", available backends: %s", backendName, allBackendNames())
+		return nil, fmt.Errorf("unknown backend \"%s\", available backends: %s", options.BackendName(), allBackendNames())
 	}
-	backend, err := backendInit()
+	backend, err := backendInit(options)
 	if err != nil {
 		return nil, err
 	}
 	return &server{
 		backend: backend,
+		options: options,
 	}, nil
 }
 
-func maybeVLog(r *http.Request, body string) {
-	if *verbose {
-		log.Printf("Got request at %s", r.URL)
+func (s *server) maybeVLog(r *http.Request, body string) {
+	if s.options.Verbose() {
 		log.Println("--------------------------")
+		log.Printf("Got request at %s", r.URL)
 		for k, v := range r.Header {
 			log.Printf("%s: %s", k, v)
 		}
@@ -74,11 +77,11 @@ func maybeVLog(r *http.Request, body string) {
 }
 
 func (s *server) getArticles(w http.ResponseWriter, r *http.Request) {
-	maybeVLog(r, fmt.Sprintf("Received request %s", r.URL.String()))
+	s.maybeVLog(r, "")
 
 	var body pocketapi.GetRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, fmt.Sprintf("Unable to parse request body: %v", err.Error()), http.StatusBadRequest)
+		http.Error(w, fmt.Sprintf("Unable to parse request body: %v", err), http.StatusBadRequest)
 		return
 	}
 
@@ -94,11 +97,11 @@ func (s *server) getArticles(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) modifyArticles(w http.ResponseWriter, r *http.Request) {
-	maybeVLog(r, fmt.Sprintf("Received request %s", r.URL.String()))
+	s.maybeVLog(r, "")
 
 	var body pocketapi.SendRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, fmt.Sprintf("Unable to parse request body: %v", err.Error()), http.StatusBadRequest)
+		http.Error(w, fmt.Sprintf("Unable to parse request body: %v", err), http.StatusBadRequest)
 		return
 	}
 
@@ -110,19 +113,20 @@ func (s *server) modifyArticles(w http.ResponseWriter, r *http.Request) {
 	for i, action := range body.Actions {
 		actionTime := time.Unix(int64(action.Time), 0)
 		var actionErr error
-		if action.Action == "add" {
+		switch action.Action {
+		case "add":
 			actionErr = s.backend.Add(action.URL, "", actionTime)
-		} else if action.Action == "archive" {
+		case "archive":
 			actionErr = s.backend.Archive(action.ItemID, actionTime)
-		} else if action.Action == "readd" {
+		case "readd":
 			actionErr = s.backend.Unarchive(action.ItemID, actionTime)
-		} else if action.Action == "favorite" {
+		case "favorite":
 			actionErr = s.backend.Favorite(action.ItemID, actionTime)
-		} else if action.Action == "unfavorite" {
+		case "unfavorite":
 			actionErr = s.backend.Unfavorite(action.ItemID, actionTime)
-		} else if action.Action == "delete" {
+		case "delete":
 			actionErr = s.backend.Delete(action.ItemID, actionTime)
-		} else {
+		default:
 			// Do nothing, fail open.
 			actionErr = nil // For emphasis.
 		}
@@ -142,7 +146,27 @@ func (s *server) modifyArticles(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) articleText(w http.ResponseWriter, r *http.Request) {
-	maybeVLog(r, fmt.Sprintf("Received request %s", r.URL.String()))
+	s.maybeVLog(r, "")
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, fmt.Sprintf("Unable to parse request body: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	url, exists := r.Form["url"]
+	if !exists || len(url) == 0 {
+		http.Error(w, "No URL specified in form data", http.StatusBadRequest)
+		return
+	}
+
+	responseBody, err := s.backend.ArticleText(url[0])
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Unable to forward request: %v", err), http.StatusBadRequest)
+		return
+	}
+	if err := json.NewEncoder(w).Encode(&responseBody); err != nil {
+		http.Error(w, fmt.Sprintf("Unable to serialize response: %v", err), http.StatusInternalServerError)
+		return
+	}
 }
 
 func catchAll(w http.ResponseWriter, r *http.Request) {
@@ -150,9 +174,9 @@ func catchAll(w http.ResponseWriter, r *http.Request) {
 	http.NotFound(w, r)
 }
 
-func StartServing() {
+func StartServing(options ServerOptions) {
 	mux := http.NewServeMux()
-	server, err := NewServer(*backendName)
+	server, err := NewServer(options)
 	if err != nil {
 		log.Printf("Error starting server: %v", err)
 		return
@@ -163,7 +187,7 @@ func StartServing() {
 	mux.HandleFunc("/v3beta/text", server.articleText)
 	mux.HandleFunc("/", catchAll)
 
-	fmt.Printf("Listening on http://localhost:%d\n", *port)
+	fmt.Printf("Listening on http://localhost:%d\n", options.Port())
 
-	http.ListenAndServe(fmt.Sprintf(":%d", *port), mux)
+	http.ListenAndServe(fmt.Sprintf(":%d", options.Port()), mux)
 }
