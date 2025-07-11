@@ -1,12 +1,11 @@
 package server_test
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
-	"errors"
 	"fmt"
-	"net/http"
+	"io"
+	"proxyserver/readeck"
+	"strings"
 	"testing"
 
 	containers "github.com/testcontainers/testcontainers-go"
@@ -17,6 +16,8 @@ import (
 // an instance of the proxy server at it, and runs Pocket-compatible API calls through the proxy
 // server.
 const readeckImage = "codeberg.org/readeck/readeck:0.19.2"
+const readeckUser = "tester"
+const readeckPassword = "testpassword"
 
 type env struct {
 	readeckContainer containers.Container
@@ -26,43 +27,6 @@ type env struct {
 
 func (e env) cleanup(t *testing.T) {
 	containers.CleanupContainer(t, e.readeckContainer)
-}
-
-func getAuthToken(baseUrl string) (string, error) {
-	url := fmt.Sprintf("%s/api/auth", baseUrl)
-	payload := []byte(`{
-		"application": "test",
-		"password": "test",
-		"username": "tester",
-	}`)
-
-	req, err := http.NewRequest(http.MethodPost, url, bytes.NewBuffer(payload))
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
-
-	client := &http.Client{}
-	res, err := client.Do(req)
-	if err != nil {
-		return "", err
-	}
-	if res.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("error calling Readeck auth API: [%d] %s", res.StatusCode, res.Status)
-	}
-
-	var resBody struct {
-		Token string
-	}
-	if err := json.NewDecoder(res.Body).Decode(&resBody); err != nil {
-		return "", err
-	}
-	if resBody.Token == "" {
-		return "", errors.New("unexpected empty token in Readeck auth response")
-	}
-
-	return resBody.Token, nil
 }
 
 func setupEnv(ctx context.Context, t *testing.T) (env, error) {
@@ -78,7 +42,10 @@ func setupEnv(ctx context.Context, t *testing.T) (env, error) {
 	}
 
 	readeckContainer, err := containers.GenericContainer(ctx, req)
+	errCleanup := func() { containers.CleanupContainer(t, readeckContainer) }
+
 	if err != nil {
+		errCleanup()
 		return env{}, err
 	}
 	t.Log("Readeck container started")
@@ -90,10 +57,12 @@ func setupEnv(ctx context.Context, t *testing.T) (env, error) {
 	// Populate the readeck host:port
 	host, err := readeckContainer.Host(ctx)
 	if err != nil {
+		errCleanup()
 		return env{}, err
 	}
 	port, err := readeckContainer.MappedPort(ctx, "8000/tcp")
 	if err != nil {
+		errCleanup()
 		return env{}, err
 	}
 	e.readeckBaseUrl = fmt.Sprintf("http://%s:%s", host, port.Port())
@@ -105,18 +74,26 @@ func setupEnv(ctx context.Context, t *testing.T) (env, error) {
 		"-config", "/readeck/config.toml",
 		"-email", "test@test.com",
 		"-group", "admin",
-		"-p", "test",
-		"-u", "tester",
+		"-p", readeckPassword,
+		"-u", readeckUser,
 	}
-	if code, _, err := readeckContainer.Exec(ctx, userCmd); err != nil {
+	if code, output, err := readeckContainer.Exec(ctx, userCmd); err != nil {
+		errCleanup()
 		return env{}, err
 	} else if code != 0 {
+		errCleanup()
 		return env{}, fmt.Errorf("unexpected error from readeck user command: want 0 got %d", code)
+	} else {
+		buf := new(strings.Builder)
+		if _, err := io.Copy(buf, output); err == nil {
+			t.Log(buf.String())
+		}
 	}
 
 	// Get the auth token.
-	token, err := getAuthToken(e.readeckBaseUrl)
+	token, err := readeck.GetAuthToken(e.readeckBaseUrl, "test app", readeckUser, readeckPassword)
 	if err != nil {
+		errCleanup()
 		return env{}, err
 	}
 	e.authToken = token

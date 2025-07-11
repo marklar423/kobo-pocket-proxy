@@ -235,8 +235,8 @@ func (conn *ReadeckConn) Get(req pocketapi.GetRequest) (pocketapi.GetResponse, e
 	if err != nil {
 		return pocketapi.GetResponse{}, err
 	}
-	if deckRes.StatusCode != http.StatusOK {
-		return pocketapi.GetResponse{}, fmt.Errorf("error calling Readeck API: [%d] %s", deckRes.StatusCode, deckRes.Status)
+	if err := checkResponseCode(deckRes); err != nil {
+		return pocketapi.GetResponse{}, err
 	}
 
 	return conn.translateGetResponse(deckRes)
@@ -252,8 +252,8 @@ func (conn *ReadeckConn) getOneItem(itemID string) (getResponseItem, error) {
 	if err != nil {
 		return getResponseItem{}, err
 	}
-	if deckRes.StatusCode != http.StatusOK {
-		return getResponseItem{}, fmt.Errorf("error calling Readeck API: [%d] %s", deckRes.StatusCode, deckRes.Status)
+	if err := checkResponseCode(deckRes); err != nil {
+		return getResponseItem{}, err
 	}
 
 	var item getResponseItem

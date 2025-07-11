@@ -61,8 +61,8 @@ func (conn *ReadeckConn) Add(url string, title string, time time.Time) error {
 	if err != nil {
 		return err
 	}
-	if deckRes.StatusCode != http.StatusOK {
-		return fmt.Errorf("error calling Readeck API: [%d] %s", deckRes.StatusCode, deckRes.Status)
+	if err := checkResponseCode(deckRes); err != nil {
+		return err
 	}
 
 	// Cache the returned ID

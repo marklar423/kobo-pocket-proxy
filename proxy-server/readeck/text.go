@@ -52,8 +52,8 @@ func (conn *ReadeckConn) getArticleHTML(itemID string, received func(io.ReadClos
 	if err != nil {
 		return err
 	}
-	if deckRes.StatusCode != http.StatusOK {
-		return fmt.Errorf("error calling Readeck API: [%d] %s", deckRes.StatusCode, deckRes.Status)
+	if err := checkResponseCode(deckRes); err != nil {
+		return err
 	}
 
 	return received(deckReq.Body)

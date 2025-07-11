@@ -3,6 +3,7 @@ package readeck
 import (
 	"crypto/sha1"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -46,4 +47,20 @@ func digest(val string) string {
 	h := sha1.New()
 	h.Write([]byte(val))
 	return hex.EncodeToString(h.Sum(nil))
+}
+
+type errorBody struct {
+	Message string
+	Status  int
+}
+
+func checkResponseCode(deckRes *http.Response) error {
+	if deckRes.StatusCode >= 200 || deckRes.StatusCode <= 299 {
+		return nil
+	}
+	var body errorBody
+	if err := json.NewDecoder(deckRes.Body).Decode(&body); err != nil {
+		return fmt.Errorf("error calling Readeck API: [%d] %s", deckRes.StatusCode, deckRes.Status)
+	}
+	return fmt.Errorf("error calling Readeck API: [%d] %s, More details: [%d] %s", deckRes.StatusCode, deckRes.Status, body.Status, body.Message)
 }
