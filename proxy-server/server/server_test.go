@@ -1,7 +1,8 @@
-package server
+package server_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	containers "github.com/testcontainers/testcontainers-go"
@@ -13,7 +14,15 @@ import (
 // server.
 const readeckImage = "codeberg.org/readeck/readeck:0.19.2"
 
-func setupEnv(ctx context.Context) (containers.Container, error) {
+type env struct {
+	readeckContainer containers.Container
+}
+
+func (e env) cleanup(t *testing.T) {
+	containers.CleanupContainer(t, e.readeckContainer)
+}
+
+func setupEnv(ctx context.Context) (env, error) {
 	req := containers.GenericContainerRequest{
 		ProviderType: containers.ProviderPodman,
 		ContainerRequest: containers.ContainerRequest{
@@ -26,18 +35,35 @@ func setupEnv(ctx context.Context) (containers.Container, error) {
 
 	readeckContainer, err := containers.GenericContainer(ctx, req)
 	if err != nil {
-		return nil, err
+		return env{}, err
 	}
 
-	return readeckContainer, nil
+	// Create the initial user
+	userCmd := []string{
+		"/bin/readeck", "user",
+		"-config", "/readeck/config.toml",
+		"-email", "test@test.com",
+		"-group", "admin",
+		"-p", "test",
+		"-u", "tester",
+	}
+	if code, _, err := readeckContainer.Exec(ctx, userCmd); err != nil {
+		return env{}, err
+	} else if code != 0 {
+		return env{}, fmt.Errorf("unexpected error from readeck user command: want 0 got %d", code)
+	}
+
+	return env{
+		readeckContainer: readeckContainer,
+	}, nil
 }
 
 func TestServer(t *testing.T) {
 	ctx := context.Background()
 
-	readeckContainer, err := setupEnv(ctx)
+	env, err := setupEnv(ctx)
 	if err != nil {
 		t.Fatalf("Unexpected error fron setupEnv(): %v", err)
 	}
-	defer containers.CleanupContainer(t, readeckContainer)
+	defer env.cleanup(t)
 }
