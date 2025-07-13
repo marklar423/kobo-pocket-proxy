@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-type ServerOptions interface {
+type Options interface {
 	Port() int
 	Verbose() bool
 	BackendName() string
@@ -20,9 +20,9 @@ type ServerOptions interface {
 	BackendBearerToken() string
 }
 
-type backendInit func(ServerOptions) (Backend, error)
+type backendInit func(Options) (Backend, error)
 
-func initReadeck(options ServerOptions) (Backend, error) {
+func initReadeck(options Options) (Backend, error) {
 	if options.BackendEndpoint() == "" {
 		return nil, errors.New("need to specify --backend_endpoint when using a Readeck backend")
 	}
@@ -46,10 +46,10 @@ func allBackendNames() string {
 
 type server struct {
 	backend Backend
-	options ServerOptions
+	options Options
 }
 
-func NewServer(options ServerOptions) (*server, error) {
+func NewServer(options Options) (*server, error) {
 	backendInit, exists := allBackends[options.BackendName()]
 	if !exists {
 		return nil, fmt.Errorf("unknown backend \"%s\", available backends: %s", options.BackendName(), allBackendNames())
@@ -174,7 +174,7 @@ func catchAll(w http.ResponseWriter, r *http.Request) {
 	http.NotFound(w, r)
 }
 
-func StartServing(options ServerOptions) {
+func StartServing(options Options) {
 	mux := http.NewServeMux()
 	server, err := NewServer(options)
 	if err != nil {
