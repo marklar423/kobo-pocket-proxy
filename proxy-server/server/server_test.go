@@ -19,6 +19,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	toml "github.com/pelletier/go-toml"
 	containers "github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
@@ -107,6 +108,17 @@ func (e *readeckEnv) cleanup(t *testing.T) {
 }
 
 func newReadeckEnv(ctx context.Context, t *testing.T) (*readeckEnv, error) {
+	// Modify the Readeck config to allow extracting loopback addresses.
+	config, err := toml.LoadBytes(nil)
+	if err != nil {
+		return nil, err
+	}
+	config.Set("extractor.denied_ips", []string{"192.168.0.0/128"})
+	newConfig, err := config.ToTomlString()
+	if err != nil {
+		return nil, err
+	}
+
 	// Create the container
 	req := containers.GenericContainerRequest{
 		ProviderType: containers.ProviderPodman,
@@ -114,17 +126,22 @@ func newReadeckEnv(ctx context.Context, t *testing.T) (*readeckEnv, error) {
 			Image:        readeckImage,
 			ExposedPorts: []string{"8000/tcp"},
 			WaitingFor:   wait.ForExposedPort(),
+			Files: []containers.ContainerFile{{
+				ContainerFilePath: "/readeck/config.toml",
+				Reader:            strings.NewReader(newConfig),
+				FileMode:          0o777,
+			}},
 		},
 		Started: true,
 	}
 
 	readeckContainer, err := containers.GenericContainer(ctx, req)
 	errCleanup := func() { containers.CleanupContainer(t, readeckContainer) }
-
 	if err != nil {
 		errCleanup()
 		return nil, err
 	}
+
 	t.Log("Readeck container started")
 
 	e := &readeckEnv{
@@ -179,6 +196,7 @@ func newReadeckEnv(ctx context.Context, t *testing.T) (*readeckEnv, error) {
 	// Start up mock website for Readeck to scrape.
 	e.mockWebsite = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
+		t.Logf("Mock website got request at %s", r.URL.String())
 		if strings.HasSuffix(r.URL.Path, "png") {
 			w.Header().Set("Content-Type", "image/png")
 			imageData, err := base64.StdEncoding.DecodeString(testImage)
@@ -229,9 +247,9 @@ func newReadeckEnv(ctx context.Context, t *testing.T) (*readeckEnv, error) {
 	})
 	e.proxyBaseUrl = fmt.Sprintf("http://localhost:%d", proxyPort)
 
-	// Wait a few seconds to give the server time to start.
+	// Wait a little to give the server time to start.
 	// This might be flaky.
-	time.Sleep(3 * time.Second)
+	time.Sleep(2 * time.Second)
 
 	return e, nil
 }
@@ -271,6 +289,9 @@ func TestServer_ReadeckBackend(t *testing.T) {
 		if !res.ActionResults[0] {
 			t.Errorf("Unexpected response from send action result: want true got false. Error: %v", res.ActionErrors[0])
 		}
+
+		// Wait a little for the article to download (might be flaky).
+		time.Sleep(time.Second)
 
 		// Article exists
 		getReq := pocketapi.GetRequest{ContentType: "article", DetailType: "complete", State: "all"}
