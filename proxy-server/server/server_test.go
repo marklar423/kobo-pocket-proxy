@@ -3,26 +3,24 @@ package server_test
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
-	"net/http/httptest"
-	"net/url"
 	"proxyserver/pocketapi"
 	"proxyserver/readeck"
 	"proxyserver/server"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/docker/go-connections/nat"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	toml "github.com/pelletier/go-toml"
 	containers "github.com/testcontainers/testcontainers-go"
+	containernet "github.com/testcontainers/testcontainers-go/network"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
 
@@ -32,9 +30,6 @@ import (
 const readeckImage = "codeberg.org/readeck/readeck:0.19.2"
 const readeckUser = "tester"
 const readeckPassword = "testpassword"
-
-// A 10x10 blue square PNG.
-const testImage = "iVBORw0KGgoAAAANSUhEUgAAAAoAAAAKCAYAAACNMs+9AAAABHNCSVQICAgIfAhkiAAAABhJREFUGJVjZJjy/z8DEYCJGEWjCqmnEAAnjQKmJi5fSQAAAABJRU5ErkJggg=="
 
 func postJSON[T any, U any](t *testing.T, url string, requestBody T, responseBody *U) error {
 	t.Logf("Sending POST to %s", url)
@@ -72,6 +67,19 @@ func postJSON[T any, U any](t *testing.T, url string, requestBody T, responseBod
 	return nil
 }
 
+func extractContainerUrl(ctx context.Context, c containers.Container, mappedPort nat.Port) (string, error) {
+	host, err := c.Host(ctx)
+	if err != nil {
+		return "", err
+	}
+	port, err := c.MappedPort(ctx, mappedPort)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("http://%s:%s", host, port.Port()), nil
+
+}
+
 func findUnusedPort() (int, error) {
 	// This is a hack that starts listening on an unused port and immediately closes
 	// it. It'll work most of the time, unless some other process grabs it right after.
@@ -97,119 +105,105 @@ func (o testServerOptions) BackendEndpoint() string    { return o.backendEndpoin
 func (o testServerOptions) BackendBearerToken() string { return o.backendBearerToken }
 
 type readeckEnv struct {
-	readeckContainer containers.Container
-	readeckBaseUrl   string
-	authToken        string
-	mockWebsite      *httptest.Server
-	proxyBaseUrl     string
+	network            *containers.DockerNetwork
+	readeckContainer   containers.Container
+	readeckBaseUrl     string
+	authToken          string
+	mockWebsite        containers.Container
+	mockWebsiteBaseUrl string
+	proxyBaseUrl       string
 }
 
 func (e *readeckEnv) cleanup(t *testing.T) {
+	containers.CleanupNetwork(t, e.network)
 	containers.CleanupContainer(t, e.readeckContainer)
-	e.mockWebsite.Close()
+	containers.CleanupContainer(t, e.mockWebsite)
 }
 
 func newReadeckEnv(ctx context.Context, t *testing.T) (*readeckEnv, error) {
 	e := &readeckEnv{}
 
+	containerNet, err := containernet.New(ctx)
+	if err != nil {
+		return nil, err
+	}
+	e.network = containerNet
+	errCleanup := func() { e.cleanup(t) }
+
 	// Start up mock website for Readeck to scrape.
-	e.mockWebsite = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		t.Logf("Mock website got request at %s", r.URL.String())
-		if strings.HasSuffix(r.URL.Path, "png") {
-			w.Header().Set("Content-Type", "image/png")
-			imageData, err := base64.StdEncoding.DecodeString(testImage)
-			if err != nil {
-				t.Fatalf("Error decoding image base64: %v", err)
-			}
-			w.Write(imageData)
-		}
-		if strings.HasSuffix(r.URL.Path, "html") {
-			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-
-			title := r.URL.Query().Get("title")
-			baseUrl := e.mockWebsite.URL
-
-			fmt.Fprintf(w, `
-			<html>
-			<head><title>%s</title></head>
-			<body>
-			  <h1>%s</h1>
-			  <div>
-			    <p><img src="%s/image1.png" /></p>
-			  </div>
-				<img src="%s/image2.png" />
-			</body>
-			</html>
-			`, title, title, baseUrl, baseUrl)
-		}
-	}))
-	t.Logf("Mock website URL: %s", e.mockWebsite.URL)
-	errCleanup := func() { e.mockWebsite.Close() }
-
-	mockUrl, err := url.Parse(e.mockWebsite.URL)
+	mockWebsite, err := containers.GenericContainer(ctx, containers.GenericContainerRequest{
+		ContainerRequest: containers.ContainerRequest{
+			ExposedPorts:   []string{"9090/tcp"},
+			Networks:       []string{e.network.Name},
+			NetworkAliases: map[string][]string{e.network.Name: {"mockwebsite"}},
+			// Note: the mockwebsite container must be built before running this.
+			// Ideally this would be done automatically with `FromDockerfile`, but
+			// I couldn't get it working (kept complaining about insufficient UIDs).
+			Image: "localhost/mockwebsite:latest",
+		},
+		Started: true,
+	})
 	if err != nil {
 		errCleanup()
 		return nil, err
 	}
-	mockPort, err := strconv.Atoi(mockUrl.Port())
+
+	e.mockWebsite = mockWebsite
+
+	cip, _ := e.mockWebsite.ContainerIP(ctx)
+	t.Logf("Mockwebsite IP: %s", cip)
+	mockWebsiteBaseUrl, err := extractContainerUrl(ctx, e.mockWebsite, "9090/tcp")
 	if err != nil {
 		errCleanup()
 		return nil, err
 	}
+	e.mockWebsiteBaseUrl = mockWebsiteBaseUrl
+	t.Logf("Mock website base URL: %s", e.mockWebsiteBaseUrl)
 
 	// Modify the Readeck config to allow extracting loopback addresses.
 	config, err := toml.LoadBytes(nil)
 	if err != nil {
+		errCleanup()
 		return nil, err
 	}
 	config.Set("extractor.denied_ips", []string{"192.168.0.0/128"})
 	newConfig, err := config.ToTomlString()
 	if err != nil {
+		errCleanup()
 		return nil, err
 	}
 
-	// Create the container
-	req := containers.GenericContainerRequest{
+	// Create the Readeck container
+	readeckContainer, err := containers.GenericContainer(ctx, containers.GenericContainerRequest{
 		ContainerRequest: containers.ContainerRequest{
 			Image:        readeckImage,
 			ExposedPorts: []string{"8000/tcp"},
+			Networks:     []string{e.network.Name},
 			WaitingFor:   wait.ForExposedPort(),
 			Files: []containers.ContainerFile{{
 				ContainerFilePath: "/readeck/config.toml",
 				Reader:            strings.NewReader(newConfig),
 				FileMode:          0o777,
 			}},
-			HostAccessPorts: []int{mockPort},
 		},
 		Started: true,
-	}
-
-	readeckContainer, err := containers.GenericContainer(ctx, req)
+	})
 	if err != nil {
 		errCleanup()
 		return nil, err
 	}
 
 	t.Log("Readeck container started")
+
 	e.readeckContainer = readeckContainer
-	errCleanup = func() {
-		containers.CleanupContainer(t, readeckContainer)
-		e.mockWebsite.Close()
-	}
 
 	// Populate the readeck host:port
-	host, err := readeckContainer.Host(ctx)
+	readeckBaseUrl, err := extractContainerUrl(ctx, e.readeckContainer, "8000/tcp")
 	if err != nil {
 		errCleanup()
 		return nil, err
 	}
-	port, err := readeckContainer.MappedPort(ctx, "8000/tcp")
-	if err != nil {
-		errCleanup()
-		return nil, err
-	}
-	e.readeckBaseUrl = fmt.Sprintf("http://%s:%s", host, port.Port())
+	e.readeckBaseUrl = readeckBaseUrl
 	t.Logf("Readeck base URL: %s", e.readeckBaseUrl)
 
 	// Create the initial user
@@ -263,6 +257,8 @@ func newReadeckEnv(ctx context.Context, t *testing.T) (*readeckEnv, error) {
 	// This might be flaky.
 	time.Sleep(2 * time.Second)
 
+	time.Sleep(time.Hour)
+
 	return e, nil
 }
 
@@ -288,7 +284,7 @@ func TestServer_ReadeckBackend(t *testing.T) {
 
 	t.Run("SaveArticle", func(t *testing.T) {
 		// Save an article
-		articleUrl := fmt.Sprintf("%s/test1.html?title=Title1", env.mockWebsite.URL)
+		articleUrl := fmt.Sprintf("%s/test1.html?title=Title1", env.mockWebsiteBaseUrl)
 		req := pocketapi.SendRequest{
 			Actions: []pocketapi.SendAction{
 				{Action: "add", URL: articleUrl},
@@ -330,8 +326,8 @@ func TestServer_ReadeckBackend(t *testing.T) {
 				t.Errorf("Unexpected number of articles images, want 2 got %d", len(v.Images))
 			}
 			wantImages := []string{
-				fmt.Sprintf("%s/image1.png", env.mockWebsite.URL),
-				fmt.Sprintf("%s/image2.png", env.mockWebsite.URL),
+				fmt.Sprintf("%s/image1.png", env.mockWebsiteBaseUrl),
+				fmt.Sprintf("%s/image2.png", env.mockWebsiteBaseUrl),
 			}
 			var gotImages []string
 			for _, img := range v.Images {

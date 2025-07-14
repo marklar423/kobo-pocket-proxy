@@ -1,0 +1,18 @@
+FROM golang:1.24.3 AS build-stage
+
+WORKDIR /src
+
+COPY ../ ./
+RUN go mod download
+
+RUN CGO_ENABLED=0 GOOS=linux go build -o /bin/mockwebsite mockwebsite/main.go
+
+FROM scratch
+
+WORKDIR /mockwebsite
+
+COPY --from=build-stage /bin/mockwebsite /mockwebsite/mockwebsite
+
+EXPOSE 9090
+
+ENTRYPOINT ["/mockwebsite/mockwebsite"]
