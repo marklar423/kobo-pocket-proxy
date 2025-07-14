@@ -189,5 +189,6 @@ func StartServing(options Options) {
 
 	fmt.Printf("Listening on http://localhost:%d\n", options.Port())
 
-	http.ListenAndServe(fmt.Sprintf(":%d", options.Port()), mux)
+	err = http.ListenAndServe(fmt.Sprintf(":%d", options.Port()), mux)
+	fmt.Printf("Server: %v", err)
 }

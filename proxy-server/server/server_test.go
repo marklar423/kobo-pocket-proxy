@@ -1,18 +1,24 @@
 package server_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"proxyserver/pocketapi"
 	"proxyserver/readeck"
 	"proxyserver/server"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	containers "github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
@@ -26,6 +32,53 @@ const readeckPassword = "testpassword"
 
 // A 10x10 blue square PNG.
 const testImage = "iVBORw0KGgoAAAANSUhEUgAAAAoAAAAKCAYAAACNMs+9AAAABHNCSVQICAgIfAhkiAAAABhJREFUGJVjZJjy/z8DEYCJGEWjCqmnEAAnjQKmJi5fSQAAAABJRU5ErkJggg=="
+
+func postJSON[T any, U any](t *testing.T, url string, requestBody T, responseBody *U) error {
+	t.Logf("Sending POST to %s", url)
+
+	var buffer bytes.Buffer
+	if err := json.NewEncoder(&buffer).Encode(requestBody); err != nil {
+		return err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, url, &buffer)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("HTTP request failed with status %s: %s", resp.Status, string(bodyBytes))
+	}
+
+	if responseBody != nil {
+		err = json.NewDecoder(resp.Body).Decode(responseBody)
+		if err != nil {
+			return fmt.Errorf("failed to parse response JSON: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func findUnusedPort() (int, error) {
+	// This is a hack that starts listening on an unused port and immediately closes
+	// it. It'll work most of the time, unless some other process grabs it right after.
+	listener, err := net.Listen("tcp", ":0")
+	if err != nil {
+		return 0, err
+	}
+	defer listener.Close()
+	return listener.Addr().(*net.TCPAddr).Port, nil
+}
 
 type testServerOptions struct {
 	port               int
@@ -140,7 +193,7 @@ func newReadeckEnv(ctx context.Context, t *testing.T) (*readeckEnv, error) {
 			title := r.URL.Query().Get("title")
 			baseUrl := e.mockWebsite.URL
 
-			w.Write([]byte(fmt.Sprintf(`
+			fmt.Fprintf(w, `
 			<html>
 			<head><title>%s</title></head>
 			<body>
@@ -151,7 +204,7 @@ func newReadeckEnv(ctx context.Context, t *testing.T) (*readeckEnv, error) {
 				<img src="%s/image2.png" />
 			</body>
 			</html>
-			`, title, title, baseUrl, baseUrl)))
+			`, title, title, baseUrl, baseUrl)
 		}
 	}))
 	t.Logf("Mock website URL: %s", e.mockWebsite.URL)
@@ -161,12 +214,11 @@ func newReadeckEnv(ctx context.Context, t *testing.T) (*readeckEnv, error) {
 	}
 
 	// Finally, start the proxy server.
-	listener, err := net.Listen("tcp", ":0")
+	proxyPort, err := findUnusedPort()
 	if err != nil {
 		errCleanup()
 		return nil, err
 	}
-	proxyPort := listener.Addr().(*net.TCPAddr).Port
 
 	// TODO: Does this need manual cleanup?
 	go server.StartServing(testServerOptions{
@@ -176,6 +228,10 @@ func newReadeckEnv(ctx context.Context, t *testing.T) (*readeckEnv, error) {
 		backendBearerToken: e.authToken,
 	})
 	e.proxyBaseUrl = fmt.Sprintf("http://localhost:%d", proxyPort)
+
+	// Wait a few seconds to give the server time to start.
+	// This might be flaky.
+	time.Sleep(3 * time.Second)
 
 	return e, nil
 }
@@ -188,4 +244,72 @@ func TestServer_ReadeckBackend(t *testing.T) {
 		t.Fatalf("Unexpected error fron newReadeckEnv(): %v", err)
 	}
 	defer env.cleanup(t)
+
+	t.Run("InitialState", func(t *testing.T) {
+		req := pocketapi.GetRequest{ContentType: "article", DetailType: "complete", State: "all"}
+		var res pocketapi.GetResponse
+		if err := postJSON(t, fmt.Sprintf("%s/v3/get", env.proxyBaseUrl), req, &res); err != nil {
+			t.Fatalf("Unexpected error calling /v3/get: %v", err)
+		}
+		if len(res.List) > 0 {
+			t.Errorf("Unexpected number of items, want 0 got %d", len(res.List))
+		}
+	})
+
+	t.Run("SaveArticle", func(t *testing.T) {
+		// Save an article
+		articleUrl := fmt.Sprintf("%s/test1.html?title=Title1", env.mockWebsite.URL)
+		req := pocketapi.SendRequest{
+			Actions: []pocketapi.SendAction{
+				{Action: "add", URL: articleUrl},
+			},
+		}
+		var res pocketapi.SendResponse
+		if err := postJSON(t, fmt.Sprintf("%s/v3/send", env.proxyBaseUrl), req, &res); err != nil {
+			t.Fatalf("Unexpected error calling /v3/send: %v", err)
+		}
+		if !res.ActionResults[0] {
+			t.Errorf("Unexpected response from send action result: want true got false. Error: %v", res.ActionErrors[0])
+		}
+
+		// Article exists
+		getReq := pocketapi.GetRequest{ContentType: "article", DetailType: "complete", State: "all"}
+		var getRes pocketapi.GetResponse
+		if err := postJSON(t, fmt.Sprintf("%s/v3/get", env.proxyBaseUrl), getReq, &getRes); err != nil {
+			t.Fatalf("Unexpected error calling /v3/get: %v", err)
+		}
+		t.Logf("Get response: %+v", getRes)
+
+		if len(getRes.List) != 1 {
+			t.Errorf("Unexpected number of items, want 1 got %d", len(getRes.List))
+		}
+		for k, v := range getRes.List {
+			if v.ItemID != k {
+				t.Errorf("Get map key doesn't match, key %s != item ID %s", k, v.ItemID)
+			}
+			if v.GivenURL != articleUrl || v.ResolvedURL != articleUrl {
+				t.Errorf("Unexpected given or resolved URL, want %s got %s and %s", articleUrl, v.GivenURL, v.ResolvedURL)
+			}
+			if v.GivenTitle != "Title1" || v.ResolvedTitle != "Title1" {
+				t.Errorf("Unexpected given or resolved title, want Title1 got %s and %s", v.GivenTitle, v.ResolvedTitle)
+			}
+			if len(v.Images) != 2 {
+				t.Errorf("Unexpected number of articles images, want 2 got %d", len(v.Images))
+			}
+			wantImages := []string{
+				fmt.Sprintf("%s/image1.png", env.mockWebsite.URL),
+				fmt.Sprintf("%s/image2.png", env.mockWebsite.URL),
+			}
+			var gotImages []string
+			for _, img := range v.Images {
+				gotImages = append(gotImages, img.Src)
+				if img.Height != "10" || img.Width != "10" {
+					t.Errorf("Unexpected image dimensions, want 10x10, got %sx%s", img.Width, img.Height)
+				}
+			}
+			if diff := cmp.Diff(wantImages, gotImages, cmpopts.SortSlices(func(a, b string) bool { return a < b })); diff != "" {
+				t.Errorf("Article images mismatch (-want +got):\n%s", diff)
+			}
+		}
+	})
 }
