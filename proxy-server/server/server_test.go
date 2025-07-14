@@ -10,9 +10,11 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"proxyserver/pocketapi"
 	"proxyserver/readeck"
 	"proxyserver/server"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -108,6 +110,54 @@ func (e *readeckEnv) cleanup(t *testing.T) {
 }
 
 func newReadeckEnv(ctx context.Context, t *testing.T) (*readeckEnv, error) {
+	e := &readeckEnv{}
+
+	// Start up mock website for Readeck to scrape.
+	e.mockWebsite = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		t.Logf("Mock website got request at %s", r.URL.String())
+		if strings.HasSuffix(r.URL.Path, "png") {
+			w.Header().Set("Content-Type", "image/png")
+			imageData, err := base64.StdEncoding.DecodeString(testImage)
+			if err != nil {
+				t.Fatalf("Error decoding image base64: %v", err)
+			}
+			w.Write(imageData)
+		}
+		if strings.HasSuffix(r.URL.Path, "html") {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+
+			title := r.URL.Query().Get("title")
+			baseUrl := e.mockWebsite.URL
+
+			fmt.Fprintf(w, `
+			<html>
+			<head><title>%s</title></head>
+			<body>
+			  <h1>%s</h1>
+			  <div>
+			    <p><img src="%s/image1.png" /></p>
+			  </div>
+				<img src="%s/image2.png" />
+			</body>
+			</html>
+			`, title, title, baseUrl, baseUrl)
+		}
+	}))
+	t.Logf("Mock website URL: %s", e.mockWebsite.URL)
+	errCleanup := func() { e.mockWebsite.Close() }
+
+	mockUrl, err := url.Parse(e.mockWebsite.URL)
+	if err != nil {
+		errCleanup()
+		return nil, err
+	}
+	mockPort, err := strconv.Atoi(mockUrl.Port())
+	if err != nil {
+		errCleanup()
+		return nil, err
+	}
+
 	// Modify the Readeck config to allow extracting loopback addresses.
 	config, err := toml.LoadBytes(nil)
 	if err != nil {
@@ -121,7 +171,6 @@ func newReadeckEnv(ctx context.Context, t *testing.T) (*readeckEnv, error) {
 
 	// Create the container
 	req := containers.GenericContainerRequest{
-		ProviderType: containers.ProviderPodman,
 		ContainerRequest: containers.ContainerRequest{
 			Image:        readeckImage,
 			ExposedPorts: []string{"8000/tcp"},
@@ -131,21 +180,22 @@ func newReadeckEnv(ctx context.Context, t *testing.T) (*readeckEnv, error) {
 				Reader:            strings.NewReader(newConfig),
 				FileMode:          0o777,
 			}},
+			HostAccessPorts: []int{mockPort},
 		},
 		Started: true,
 	}
 
 	readeckContainer, err := containers.GenericContainer(ctx, req)
-	errCleanup := func() { containers.CleanupContainer(t, readeckContainer) }
 	if err != nil {
 		errCleanup()
 		return nil, err
 	}
 
 	t.Log("Readeck container started")
-
-	e := &readeckEnv{
-		readeckContainer: readeckContainer,
+	e.readeckContainer = readeckContainer
+	errCleanup = func() {
+		containers.CleanupContainer(t, readeckContainer)
+		e.mockWebsite.Close()
 	}
 
 	// Populate the readeck host:port
@@ -192,44 +242,6 @@ func newReadeckEnv(ctx context.Context, t *testing.T) (*readeckEnv, error) {
 	}
 	e.authToken = token
 	t.Logf("Readeck auth token: %s", e.authToken)
-
-	// Start up mock website for Readeck to scrape.
-	e.mockWebsite = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		t.Logf("Mock website got request at %s", r.URL.String())
-		if strings.HasSuffix(r.URL.Path, "png") {
-			w.Header().Set("Content-Type", "image/png")
-			imageData, err := base64.StdEncoding.DecodeString(testImage)
-			if err != nil {
-				t.Fatalf("Error decoding image base64: %v", err)
-			}
-			w.Write(imageData)
-		}
-		if strings.HasSuffix(r.URL.Path, "html") {
-			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-
-			title := r.URL.Query().Get("title")
-			baseUrl := e.mockWebsite.URL
-
-			fmt.Fprintf(w, `
-			<html>
-			<head><title>%s</title></head>
-			<body>
-			  <h1>%s</h1>
-			  <div>
-			    <p><img src="%s/image1.png" /></p>
-			  </div>
-				<img src="%s/image2.png" />
-			</body>
-			</html>
-			`, title, title, baseUrl, baseUrl)
-		}
-	}))
-	t.Logf("Mock website URL: %s", e.mockWebsite.URL)
-	errCleanup = func() {
-		containers.CleanupContainer(t, readeckContainer)
-		e.mockWebsite.Close()
-	}
 
 	// Finally, start the proxy server.
 	proxyPort, err := findUnusedPort()
