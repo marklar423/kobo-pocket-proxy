@@ -1,4 +1,4 @@
-FROM golang:1.24.3 AS build-stage
+FROM golang:1.24-alpine AS build-stage
 
 WORKDIR /src
 
@@ -12,6 +12,7 @@ FROM scratch
 WORKDIR /proxyserver
 
 COPY --from=build-stage /bin/proxyserver /proxyserver/proxyserver
+COPY --from=build-stage /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 
 EXPOSE 9090
 
