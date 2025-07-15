@@ -257,8 +257,6 @@ func newReadeckEnv(ctx context.Context, t *testing.T) (*readeckEnv, error) {
 	// This might be flaky.
 	time.Sleep(2 * time.Second)
 
-	time.Sleep(time.Hour)
-
 	return e, nil
 }
 
