@@ -56,7 +56,7 @@ func (conn *ReadeckConn) getArticleHTML(itemID string, received func(io.ReadClos
 		return err
 	}
 
-	return received(deckReq.Body)
+	return received(deckRes.Body)
 }
 
 func parseArticleText(articleText io.ReadCloser, article *pocketapi.ArticleTextResponse) error {
