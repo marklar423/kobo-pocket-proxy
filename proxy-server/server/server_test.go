@@ -150,8 +150,6 @@ func newReadeckEnv(ctx context.Context, t *testing.T) (*readeckEnv, error) {
 
 	e.mockWebsite = mockWebsite
 
-	cip, _ := e.mockWebsite.ContainerIP(ctx)
-	t.Logf("Mockwebsite IP: %s", cip)
 	mockWebsiteBaseUrl, err := extractContainerUrl(ctx, e.mockWebsite, "9090/tcp")
 	if err != nil {
 		errCleanup()
