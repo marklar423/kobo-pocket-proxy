@@ -78,26 +78,30 @@ func NewServer(options Options) (*server, error) {
 	}, nil
 }
 
-func (s *server) maybeVLog(r *http.Request, body string) {
+func (s *server) log(r *http.Request) {
+	log.Printf("%s %s received from %s", r.Method, r.URL, r.RemoteAddr)
 	if s.options.Verbose() {
-		log.Println("--------------------------")
-		log.Printf("Got request at %s", r.URL)
 		for k, v := range r.Header {
 			log.Printf("%s: %s", k, v)
 		}
-		log.Println(body)
-		log.Println("--------------------------")
+	}
+}
+
+func (s *server) logStruct(r *http.Request, data interface{}) {
+	if s.options.Verbose() {
+		log.Printf("%s: %+v", r.URL.Path, data)
 	}
 }
 
 func (s *server) getArticles(w http.ResponseWriter, r *http.Request) {
-	s.maybeVLog(r, "")
+	s.log(r)
 
 	var body pocketapi.GetRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, fmt.Sprintf("Unable to parse request body: %v", err), http.StatusBadRequest)
 		return
 	}
+	s.logStruct(r, body)
 
 	responseBody, err := s.backend.Get(body)
 	if err != nil {
@@ -111,13 +115,14 @@ func (s *server) getArticles(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) modifyArticles(w http.ResponseWriter, r *http.Request) {
-	s.maybeVLog(r, "")
+	s.log(r)
 
 	var body pocketapi.SendRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, fmt.Sprintf("Unable to parse request body: %v", err), http.StatusBadRequest)
 		return
 	}
+	s.logStruct(r, body)
 
 	var responseBody pocketapi.SendResponse
 	responseBody.Status = 1
@@ -160,7 +165,7 @@ func (s *server) modifyArticles(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) articleText(w http.ResponseWriter, r *http.Request) {
-	s.maybeVLog(r, "")
+	s.log(r)
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, fmt.Sprintf("Unable to parse request body: %v", err), http.StatusBadRequest)
 		return
