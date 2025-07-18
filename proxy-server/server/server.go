@@ -87,9 +87,13 @@ func (s *server) log(r *http.Request) {
 	}
 }
 
-func (s *server) logStruct(r *http.Request, data interface{}) {
+func (s *server) vlogJSON(r *http.Request, data any) {
 	if s.options.Verbose() {
-		log.Printf("%s: %+v", r.URL.Path, data)
+		if byt, err := json.Marshal(data); err == nil {
+			log.Printf("%s: %s", r.URL.Path, byt)
+		} else {
+			log.Printf("Unable to log JSON: %v", err)
+		}
 	}
 }
 
@@ -101,7 +105,7 @@ func (s *server) getArticles(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("Unable to parse request body: %v", err), http.StatusBadRequest)
 		return
 	}
-	s.logStruct(r, body)
+	s.vlogJSON(r, body)
 
 	responseBody, err := s.backend.Get(body)
 	if err != nil {
@@ -122,7 +126,7 @@ func (s *server) modifyArticles(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("Unable to parse request body: %v", err), http.StatusBadRequest)
 		return
 	}
-	s.logStruct(r, body)
+	s.vlogJSON(r, body)
 
 	var responseBody pocketapi.SendResponse
 	responseBody.Status = 1
