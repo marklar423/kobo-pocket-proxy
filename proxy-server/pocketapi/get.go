@@ -14,6 +14,8 @@
 
 package pocketapi
 
+import "strconv"
+
 type GetRequest struct {
 	AccessToken string `json:"access_token"`
 	ConsumerKey string `json:"consumer_key"`
@@ -30,11 +32,27 @@ type GetRequest struct {
 	// "oldest", "newest", "title", "site"
 	Sort string `json:"sort"`
 	// How many items to retrieve. Max 30.
-	Count *int `json:"count"`
+	CountStr string `json:"count"`
 	// Items to skip, used for pagination.
-	Offset *int `json:"offset"`
+	OffsetStr string `json:"offset"`
 	// Unix timestamp.
 	Since *int64 `json:"since"`
+}
+
+func (r GetRequest) Count() *int {
+	if i, err := strconv.Atoi(r.CountStr); err != nil {
+		return nil
+	} else {
+		return &i
+	}
+}
+
+func (r GetRequest) Offset() *int {
+	if i, err := strconv.Atoi(r.OffsetStr); err != nil {
+		return nil
+	} else {
+		return &i
+	}
 }
 
 type GetResponseItem struct {

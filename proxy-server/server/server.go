@@ -102,6 +102,7 @@ func (s *server) getArticles(w http.ResponseWriter, r *http.Request) {
 
 	var body pocketapi.GetRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		log.Printf("Unable to parse request body: %v", err)
 		http.Error(w, fmt.Sprintf("Unable to parse request body: %v", err), http.StatusBadRequest)
 		return
 	}
@@ -208,6 +209,9 @@ func StartServing(options Options) {
 	mux.HandleFunc("/v3/get", server.getArticles)
 	mux.HandleFunc("/v3/send", server.modifyArticles)
 	mux.HandleFunc("/v3beta/text", server.articleText)
+	mux.HandleFunc("/api/kobo/get", server.getArticles)
+	mux.HandleFunc("/api/kobo/send", server.modifyArticles)
+	mux.HandleFunc("/api/kobo/text", server.articleText)
 	mux.HandleFunc("/", catchAll)
 
 	fmt.Printf("Listening on http://localhost:%d\n", options.Port())

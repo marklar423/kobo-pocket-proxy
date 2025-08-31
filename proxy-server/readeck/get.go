@@ -28,11 +28,11 @@ import (
 func buildGetQuerystring(req pocketapi.GetRequest) string {
 	query := url.Values{}
 
-	if req.Count != nil {
-		query.Set("limit", strconv.Itoa(max(0, *req.Count)))
+	if req.Count() != nil {
+		query.Set("limit", strconv.Itoa(max(0, *req.Count())))
 	}
-	if req.Offset != nil {
-		query.Set("offset", strconv.Itoa(max(0, *req.Offset)))
+	if req.Offset() != nil {
+		query.Set("offset", strconv.Itoa(max(0, *req.Offset())))
 	}
 	if req.Since != nil {
 		query.Set("updated_since", time.Unix(*req.Since, 0).Format(time.RFC3339))
