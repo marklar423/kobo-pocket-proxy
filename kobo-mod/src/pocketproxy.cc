@@ -44,6 +44,8 @@ static struct nh_info PocketProxy = {
 };
 
 static bool LoadedConfig = false;
+static QString GetSendProxiedHost = "";
+static QString TextProxiedHost = "";
 static QString GetSendApiHostPort = "";
 static QString TextApiHostPort = "";
 const char kConfigFilePath[] =
@@ -52,12 +54,18 @@ const char kConfigFilePath[] =
 static int config_file_callback(void* /*user*/, const char* section,
                                 const char* name, const char* value) {
   if (strcmp(section, "PocketProxy") == 0) {
-    if (strcmp(name, "GetSendApiHostPort") == 0) {
-      nh_log("GetSendApiHostPort=%s", value);
+    if (strcmp(name, "GetSendProxiedHost") == 0) {
+      GetSendProxiedHost = value;
+      nh_log("GetSendProxiedHost=%s", value);
+    } else if (strcmp(name, "TextProxiedHost") == 0) {
+      TextProxiedHost = value;
+      nh_log("TextProxiedHost=%s", value);
+    } else if (strcmp(name, "GetSendApiHostPort") == 0) {
       GetSendApiHostPort = value;
+      nh_log("GetSendApiHostPort=%s", value);
     } else if (strcmp(name, "TextApiHostPort") == 0) {
-      nh_log("TextApiHostPort=%s", value);
       TextApiHostPort = value;
+      nh_log("TextApiHostPort=%s", value);
     }
   } else {
     nh_log("Unknown section [%s]", section);
@@ -94,15 +102,10 @@ extern "C" __attribute__((visibility("default"))) void _proxy_pocket_api_calls(
   if (!LoadedConfig) {
     LoadedConfig = true;
     read_config_file();
-
-    if (GetSendApiHostPort.isEmpty() || TextApiHostPort.isEmpty()) {
-      nh_log(
-          "Either GetSendHostPort or TextApiHostPort is empty in "
-          "pocket_proxy.conf. Proxying will not occur.");
-    }
   }
 
-  if (!GetSendApiHostPort.isEmpty() && url.host() == "getpocket.com") {
+  if (!GetSendProxiedHost.isEmpty() && !GetSendApiHostPort.isEmpty() &&
+      url.host() == GetSendProxiedHost) {
     QUrl replacement_url(GetSendApiHostPort);
     replacement_url.setPath(url.path());
     originalMakeRequest(replacement_url, param, headers, output, inflater,
@@ -110,7 +113,8 @@ extern "C" __attribute__((visibility("default"))) void _proxy_pocket_api_calls(
     return;
   }
 
-  if (!TextApiHostPort.isEmpty() && url.host() == "text.getpocket.com") {
+  if (!TextProxiedHost.isEmpty() && !TextApiHostPort.isEmpty() &&
+      url.host() == TextProxiedHost) {
     QUrl replacement_url(TextApiHostPort);
     replacement_url.setPath(url.path());
     originalMakeRequest(replacement_url, param, headers, output, inflater,
