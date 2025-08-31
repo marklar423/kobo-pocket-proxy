@@ -211,7 +211,7 @@ func StartServing(options Options) {
 	mux.HandleFunc("/v3beta/text", server.articleText)
 	mux.HandleFunc("/api/kobo/get", server.getArticles)
 	mux.HandleFunc("/api/kobo/send", server.modifyArticles)
-	mux.HandleFunc("/api/kobo/text", server.articleText)
+	mux.HandleFunc("/api/kobo/download", server.articleText)
 	mux.HandleFunc("/", catchAll)
 
 	fmt.Printf("Listening on http://localhost:%d\n", options.Port())
