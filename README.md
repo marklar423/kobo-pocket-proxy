@@ -1,11 +1,14 @@
-# Kobo Pocket Proxy
+# Kobo Articles Proxy
 
-In light of the [Pocket shutdown](https://support.mozilla.org/en-US/kb/future-of-pocket), this project aims to preserve the wonderful Pocket integration on Kobo eReaders. 
+This project allows you to connect your Kobo's article feature to use another backend, either another hosted service or one you self-host.
+
+> [!NOTE]
+> As of August 2025, Kobo switched their article integration from Pocket to Instapaper. This project has been updated to work with either, so if you've updated your Kobo don't worry!
 
 This project has two main components:
 
 ## 1 - Kobo Mod
-This is a modification to be installed on your physical Kobo eReader. It replaces all HTTP API calls to `getpocket.com` or `text.getpocket.com` to instead point to the URL of your choice, as specified by the config file, located at `/.adds/pocket_proxy/pocket_proxy.conf` on your device.
+This is a modification to be installed on your physical Kobo eReader. It replaces all HTTP API calls to either `getpocket.com` or `www.instapaper.com` to instead point to the URL of your choice, as specified by the config file, located at `/.adds/pocket_proxy/pocket_proxy.conf` on your device.
 
 ### Installation & Uninstallation
 > [!WARNING]  
@@ -19,10 +22,25 @@ To remove the mod, simply delete all files in the `/.adds/pocket_proxy/` directo
 ### Configuration
 To set the URL endpoint that your Kobo will make Pocket requests to, edit `/.adds/pocket_proxy/pocket_proxy.conf` with the following:
 
+If your Kobo uses Instapaper:
+
 ```ini
 [PocketProxy]
-GetSendApiHostPort=http://mypocketproxy.com/
-TextApiHostPort=http://mypocketproxy.com/
+GetSendApiHostPort=http://your-hosted-proxy.com/
+TextApiHostPort=http://your-hosted-proxy.com/
+
+GetSendProxiedHost=www.instapaper.com
+```
+
+If your Kobo still uses Pocket:
+
+```ini
+[PocketProxy]
+GetSendApiHostPort=http://your-hosted-proxy.com/
+TextApiHostPort=http://your-hosted-proxy.com/
+
+GetSendProxiedHost=getpocket.com
+TextProxiedHost=text.getpocket.com
 ```
 
 After changing the config file, you might need to reboot your Kobo again.
@@ -32,9 +50,12 @@ At startup, Kobo devices dynamically load all libraries in an `/imageformats` di
 
 ## 2 - Proxy Server
 
-If your chosen Pocket replacement already has a Pocket-compatible API, then simply edit the mod config file to point to the replacement's API. 
+If your chosen article service replacement already has a Pocket-compatible API, then simply edit the mod config file to point to the replacement's API. 
 
-If not, then the included proxy server is designed to translate Pocket API calls to the API of one of the supported services, so the Kobo can keep talking to the new backend even after the Pocket API officially shuts down.
+If not, then the included proxy server is designed to translate Pocket/Instapaper API calls to the API of one of the supported services, so the Kobo can talk to the new backend.
+
+> [!NOTE]
+> The Kobo-Instapaper integration also uses a Pocket-compatible API.
 
 Currently, only Readeck is supported, but please feel free to contribute code for other backends.
 
@@ -42,7 +63,7 @@ Currently, only Readeck is supported, but please feel free to contribute code fo
 Once you have your Readeck instance [running](https://readeck.org/en/start), follow these steps to generate your bearer token:
 1. Log into your Readeck instance.
 1. Go to Settings > API Tokens
-   - (This should be located at `http://myreadeckinstance.com/profile/tokens`)
+   - (This should be located at `http://my-readeck-instance.com/profile/tokens`)
 1. Click "Create a new API token" to create one.
    - Make sure you grant this token Bookmark read & write permissions 
 1. Copy the token in the "Your API token" field.
@@ -51,14 +72,14 @@ Now, you can start the proxy container, configured to use Readeck as the backend
 
 ```sh
 $ podman run docker.io/marklar423/kobo-pocket-proxy \
-  --backend_endpoint=http://myreadeckinstance.com \
+  --backend_endpoint=http://my-readeck-instance.com \
   --backend_bearer_token=123
 ```
 
 Or if running the binary directly:
 
 ```sh
-$ pocket-proxy-server --backend_endpoint=http://myreadeckinstance.com --backend_bearer_token=123
+$ pocket-proxy-server --backend_endpoint=http://my-readeck-instance.com --backend_bearer_token=123
 ```
 
 ## Building
